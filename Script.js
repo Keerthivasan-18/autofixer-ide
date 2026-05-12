@@ -7,6 +7,7 @@ let currentProject = null;
 let openFiles = [];
 let activeFile = null;
 let autoSaveTimeout = null;
+let lastFixedCode = null;
 
 // DOM Elements
 const themeToggle = document.getElementById('themeToggle');
@@ -30,6 +31,11 @@ const syncStatus = document.getElementById('syncStatus');
 const statusIndicator = document.getElementById('statusIndicator');
 const statusText = document.getElementById('statusText');
 const consoleContent = document.getElementById('consoleContent');
+
+// Side Panel Elements
+const outputSlidePanel = document.getElementById('outputSlidePanel');
+const closeOutputSlide = document.getElementById('closeOutputSlide');
+const slideResizer = document.getElementById('slideResizer');
 
 // API Helper Functions
 async function apiRequest(endpoint, method = 'GET', data = null) {
@@ -190,7 +196,6 @@ async function createProject(name, template) {
 // Open Project
 async function openProject(project) {
     try {
-        // Load full project details from backend
         const result = await apiRequest(`/projects/${project.id}`);
         currentProject = result.project;
         
@@ -201,7 +206,6 @@ async function openProject(project) {
         
         showNotification(`Opened project: ${currentProject.name}`, 'success');
         
-        // Open first file if available
         if (currentProject.files.length > 0) {
             await openFile(currentProject.files[0]);
         }
@@ -231,7 +235,6 @@ function renderFileTree() {
         </div>
     `;
     
-    // Render folders
     currentProject.folders.forEach(folder => {
         html += `
             <div class="ml-4 space-y-1">
@@ -242,7 +245,6 @@ function renderFileTree() {
                 </div>
         `;
         
-        // Render files in this folder
         const folderFiles = currentProject.files.filter(f => f.path.startsWith(folder));
         if (folderFiles.length > 0) {
             html += '<div class="ml-6 space-y-1 border-l border-slate-200 dark:border-slate-800 pl-2">';
@@ -263,7 +265,6 @@ function renderFileTree() {
     
     fileTree.innerHTML = html;
     
-    // Add click handlers for files
     fileTree.querySelectorAll('[data-file-path]').forEach(el => {
         el.addEventListener('click', async () => {
             const filePath = el.getAttribute('data-file-path');
@@ -276,7 +277,6 @@ function renderFileTree() {
 // Open File
 async function openFile(file) {
     try {
-        // Load file content from backend
         const result = await apiRequest(`/projects/${currentProject.id}/files/${file.path}`);
         
         activeFile = { ...file, content: result.content };
@@ -285,7 +285,6 @@ async function openFile(file) {
         renderFileTree();
         updateBreadcrumbs(file.path);
         
-        // Add to open files if not already open
         if (!openFiles.find(f => f.path === file.path)) {
             openFiles.push(activeFile);
         }
@@ -323,7 +322,6 @@ function renderTabs() {
     });
     tabBar.innerHTML = html;
     
-    // Add tab click handlers
     tabBar.querySelectorAll('[data-file-path]').forEach(el => {
         el.addEventListener('click', async (e) => {
             if (!e.target.hasAttribute('data-close-file')) {
@@ -334,7 +332,6 @@ function renderTabs() {
         });
     });
     
-    // Add close handlers
     tabBar.querySelectorAll('[data-close-file]').forEach(el => {
         el.addEventListener('click', async (e) => {
             e.stopPropagation();
@@ -397,7 +394,6 @@ function renderProjectList() {
     
     projectList.innerHTML = html;
     
-    // Add event listeners
     projectList.querySelectorAll('[data-open-project]').forEach(el => {
         el.addEventListener('click', async () => {
             const projectId = el.getAttribute('data-open-project');
@@ -427,7 +423,6 @@ async function deleteProject(projectId) {
         renderProjectList();
         showNotification('Project deleted successfully', 'success');
         
-        // Close project if it's currently open
         if (currentProject && currentProject.id === projectId) {
             currentProject = null;
             welcomeScreen.style.display = 'flex';
@@ -524,12 +519,9 @@ codeEditor.addEventListener('input', () => {
     updateLineNumbers();
     syncStatus.textContent = 'Saving...';
     
-    // Clear previous timeout
     if (autoSaveTimeout) {
         clearTimeout(autoSaveTimeout);
     }
-    
-    // Set new timeout for auto-save
     autoSaveTimeout = setTimeout(saveFileContent, 1000);
 });
 
@@ -545,12 +537,15 @@ saveBtn.addEventListener('click', async () => {
 // Code Editor Functions
 function updateLineNumbers() {
     const lines = codeEditor.value.split('\n').length;
-    let html = '';
-    for (let i = 1; i <= lines; i++) {
-        html += `<div>${i}</div>`;
-    }
-    lineNumbers.innerHTML = html;
+
+    lineNumbers.innerHTML = Array.from({ length: lines }, (_, i) =>
+        `<div>${i + 1}</div>`
+    ).join('');
 }
+
+codeEditor.addEventListener('scroll', () => {
+    lineNumbers.scrollTop = codeEditor.scrollTop;
+});
 
 function updateCursorPosition() {
     const text = codeEditor.value.substring(0, codeEditor.selectionStart);
@@ -563,7 +558,6 @@ function updateCursorPosition() {
 codeEditor.addEventListener('keyup', updateCursorPosition);
 codeEditor.addEventListener('click', updateCursorPosition);
 
-// Handle Tab key
 codeEditor.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') {
         e.preventDefault();
@@ -573,6 +567,21 @@ codeEditor.addEventListener('keydown', (e) => {
         codeEditor.selectionStart = codeEditor.selectionEnd = start + 4;
     }
 });
+
+function formatCode(code) {
+    let indent = 0;
+    return code.split('\n').map(line => {
+        line = line.trim();
+
+        if (line.endsWith('}')) indent--;
+
+        let formatted = '    '.repeat(Math.max(indent, 0)) + line;
+
+        if (line.endsWith('{')) indent++;
+
+        return formatted;
+    }).join('\n');
+}
 
 // Console Functions
 const clearConsoleBtn = document.getElementById('clearConsole');
@@ -599,6 +608,45 @@ consoleTab.addEventListener('click', () => switchTab(consoleTab));
 errorTab.addEventListener('click', () => switchTab(errorTab));
 terminalTab.addEventListener('click', () => switchTab(terminalTab));
 
+// --- SIDE PANEL DRAG RESIZE LOGIC ---
+let isResizing = false;
+
+slideResizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    slideResizer.classList.add('resizing');
+    document.body.style.cursor = 'col-resize';
+    outputSlidePanel.style.transition = 'none'; // Prevent stutter while dragging
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    
+    // Calculate new width (from right edge)
+    let newWidth = window.innerWidth - e.clientX;
+    
+    // Set boundaries (min 300px, max 80% of window)
+    if (newWidth < 300) newWidth = 300;
+    if (newWidth > window.innerWidth * 0.8) newWidth = window.innerWidth * 0.8;
+    
+    outputSlidePanel.style.width = `${newWidth}px`;
+});
+
+document.addEventListener('mouseup', () => {
+    if (isResizing) {
+        isResizing = false;
+        slideResizer.classList.remove('resizing');
+        document.body.style.cursor = '';
+        // Re-enable transition for smooth open/close animations
+        outputSlidePanel.style.transition = 'transform 0.3s ease-in-out';
+    }
+});
+
+// Close Slide Panel
+closeOutputSlide.addEventListener('click', () => {
+    outputSlidePanel.classList.add('translate-x-full');
+});
+
+// Run Button
 // Run Button
 document.getElementById('runBtn').addEventListener('click', async () => {
     if (!activeFile || !currentProject) {
@@ -607,13 +655,83 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     }
     
     try {
-        const result = await apiRequest(`/projects/${currentProject.id}/run`, 'POST');
-        consoleContent.innerHTML += result.output;
-        switchTab(consoleTab);
-        showNotification('Project execution started', 'success');
+        await saveFileContent(); 
+        
+        syncStatus.textContent = 'Fixing code...';
+        showNotification(`Sending ${activeFile.name} to AutoFixer...`, 'info');
+        
+        // Open panel
+        outputSlidePanel.classList.remove('translate-x-full');
+        switchTab(consoleTab); 
+        
+        const result = await apiRequest(`/projects/${currentProject.id}/run`, 'POST', {
+            filePath: activeFile.path
+        });
+
+        console.log("DEBUG RESULT:", result);
+
+        // 🔥 Prefer clean backend response
+        let fixedCode = result.fixed_code || result.output;
+
+        console.log("RAW OUTPUT:", fixedCode);
+
+        // ✅ SAFETY CHECK
+        if (!fixedCode || typeof fixedCode !== "string" || fixedCode.trim().length === 0) {
+            console.warn("Empty or invalid output received");
+            showNotification("AutoFixer returned empty result", "error");
+            return;
+        }
+
+        lastFixedCode = fixedCode;
+        // ✅ Format nicely
+        const formattedCode = formatCode(fixedCode);
+
+        // ✅ Update editor safely
+        // codeEditor.value = formattedCode;
+        updateLineNumbers();
+
+        // ✅ Append console output (clean)
+        consoleContent.innerHTML += `
+        <div class="mb-4">
+            <div class="text-green-500 text-xs mb-1">[AUTO FIX RESULT]</div>
+            <pre class="whitespace-pre font-mono text-sm bg-[#0d1117] text-gray-200 p-3 rounded overflow-auto"></pre>
+        </div>
+        `;
+
+        const lastPre = consoleContent.querySelector("pre:last-of-type");
+        lastPre.textContent = fixedCode;
+
+        consoleContent.scrollTop = consoleContent.scrollHeight;
+
+        showNotification('AutoFixer completed successfully', 'success');
+        syncStatus.textContent = 'Project synced';
+
     } catch (error) {
-        console.error('Failed to run project:', error);
+        console.error('FULL ERROR:', error);
+
+        showNotification(`Failed: ${error.message}`, 'error');
+
+        consoleContent.innerHTML += `
+            <div class="mb-4 text-red-500">
+                <div class="text-xs mb-1">[ERROR]</div>
+                <pre class="whitespace-pre-wrap">${error.stack || error.message}</pre>
+            </div>
+        `;
+
+        syncStatus.textContent = 'Fix failed';
     }
+});
+
+document.getElementById('applyFixBtn').addEventListener('click', () => {
+    if (!lastFixedCode) {
+        showNotification("No fix available", "error");
+        return;
+    }
+
+    codeEditor.value = formatCode(lastFixedCode);
+    updateLineNumbers();
+
+    showNotification("Fix applied to editor", "success");
 });
 
 // Initialize on page load
