@@ -12,7 +12,7 @@ The project includes a custom-built frontend editor integrated with a Flask back
 - Automatically fixes Java code
 - Provides AI-generated explanations
 - Uses local AI inference with Ollama
-- Powered by Phi model
+- Powered by Qwen 2.5 model
 - Custom frontend code editor
 - Real-time frontend and backend integration
 - Project and file management support
@@ -33,7 +33,7 @@ The project includes a custom-built frontend editor integrated with a Flask back
 
 ## AI / ML
 - Ollama
-- Phi Model
+- Qwen 2.5
 - AI reasoning engine
 
 ---
@@ -107,10 +107,10 @@ https://ollama.com
 
 ---
 
-## 4. Run Phi Model
+## 4. Run Qwen 2.5 Model
 
 ```bash
-ollama run phi
+ollama run qwen2.5
 ```
 
 ---
@@ -192,7 +192,7 @@ This project helped in learning:
 
 # 👨‍💻 Author
 
-KEERTHIVASAN G
+Micky
 
 ---
 
