@@ -4,6 +4,7 @@ import os
 import json
 from datetime import datetime
 import shutil
+from autofixer import fix_java_code # Imported AI Logic
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend communication
@@ -394,7 +395,7 @@ def create_folder(project_id):
 
 @app.route('/api/projects/<project_id>/run', methods=['POST'])
 def run_project(project_id):
-    """Run/compile the project (placeholder for future implementation)"""
+    """Run the AutoFixer on the currently active file"""
     try:
         metadata = load_project_metadata(project_id)
         if not metadata:
@@ -403,10 +404,39 @@ def run_project(project_id):
                 'error': 'Project not found'
             }), 404
         
-        # This is a placeholder - actual compilation/execution would go here
+        # Get the specific file path from the request body
+        data = request.json or {}
+        file_path = data.get('filePath')
+        
+        if not file_path:
+            return jsonify({
+                'success': False,
+                'error': 'No file specified to run'
+            }), 400
+
+        # Read the file content from the disk
+        project_path = get_project_path(project_id)
+        full_file_path = os.path.join(project_path, file_path)
+        
+        if not os.path.exists(full_file_path):
+            return jsonify({'success': False, 'error': 'File not found on disk'}), 404
+            
+        with open(full_file_path, 'r') as f:
+            code_to_fix = f.read()
+
+        # Trigger the AI Model
+        fixed_code = fix_java_code(code_to_fix)
+        
+        # Format the output for the console
+        output = f"Running AutoFixer on {file_path}...\n"
+        output += "-" * 30 + "\n"
+        output += f"{fixed_code}\n"
+        output += "-" * 30 + "\n"
+        
         return jsonify({
             'success': True,
-            'output': f'Running project: {metadata["name"]}...\nCompilation started...\n'
+            'output': output,
+            'fixed_code': fixed_code
         }), 200
     
     except Exception as e:
