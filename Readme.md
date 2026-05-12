@@ -192,7 +192,7 @@ This project helped in learning:
 
 # 👨‍💻 Author
 
-Micky
+KEERTHIVASAN G
 
 ---
 
